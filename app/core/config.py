@@ -11,7 +11,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     internal_token: str = ""
-    cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_allowed_origins: str = (
+        "http://localhost:5173,"
+        "http://127.0.0.1:5173,"
+        "https://whatifverse.vercel.app"
+    )
 
     ai_service_base_url: str = ""
     ai_service_token: str = ""
