@@ -12,9 +12,8 @@ httpx==0.28.1
 idna==3.12
 packaging==26.1
 psycopg2-binary==2.9.10
-pydantic==2.10.5
-pydantic_core==2.27.2
-pydantic-settings==2.7.1
+pydantic==2.13.3
+pydantic-settings==2.13.1
 python-dotenv==1.0.1
 six==1.17.0
 SQLAlchemy==2.0.37
