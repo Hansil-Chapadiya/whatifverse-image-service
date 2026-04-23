@@ -5,7 +5,7 @@ from app.clients.cloudinary_client import CloudinaryUploadResult, CloudinaryClie
 from app.clients.hf_image_client import HFImageClient
 from app.core.config import settings
 from app.schemas.requests.asset_request import AssetCreateRequest
-from app.services.glb_builder_service import glb_builder_service
+from app.services.glb_builder_service import ScenePlane, glb_builder_service
 
 
 @dataclass
@@ -227,15 +227,17 @@ class AssetPipelineService:
     def _build_glb_generation_params(
         *,
         upload: CloudinaryUploadResult,
-        preview_asset_kind: str,
+        preview_asset_kind: str | None,
         preview_persisted: bool,
         style: str,
         asset_role: str,
         entity_order: int | None = None,
         negative_prompt: str | None = None,
+        builder_name: str = "textured_plane_glb",
+        extra_params: dict | None = None,
     ) -> dict:
         params = {
-            "builder": "textured_plane_glb",
+            "builder": builder_name,
             "source_asset_type": "generated_preview_image",
             "source_asset_persisted": preview_persisted,
             "source_asset_storage": "cloudinary" if preview_persisted else "memory",
@@ -245,13 +247,73 @@ class AssetPipelineService:
             "style": style,
             "asset_role": asset_role,
         }
-        if preview_persisted:
+        if preview_persisted and preview_asset_kind:
             params["source_asset_kind"] = preview_asset_kind
         if entity_order is not None:
             params["entity_order"] = entity_order
         if negative_prompt:
             params["negative_prompt"] = negative_prompt
+        if extra_params:
+            params.update(extra_params)
         return params
+
+    @staticmethod
+    def _should_auto_layout_scene(entity_records: list[dict]) -> bool:
+        if len(entity_records) <= 1:
+            return False
+        positions = {
+            tuple(round(float(value), 4) for value in entity_record.get("position", [0.0, 0.0, 0.0]))
+            for entity_record in entity_records
+        }
+        return len(positions) <= 1
+
+    @staticmethod
+    def _build_scene_planes(
+        *,
+        scene_preview_bytes: bytes,
+        image_width: int,
+        image_height: int,
+        entity_previews: list[dict],
+    ) -> list[ScenePlane]:
+        background_scale = max(3.5, 1.8 + (len(entity_previews) * 0.9))
+        scene_planes = [
+            ScenePlane(
+                name="scenario-background",
+                image_bytes=scene_preview_bytes,
+                image_width=image_width,
+                image_height=image_height,
+                translation=(0.0, 0.0, -1.6),
+                scale=background_scale,
+                animate=False,
+            )
+        ]
+
+        auto_layout = AssetPipelineService._should_auto_layout_scene(entity_previews)
+        center_index = (len(entity_previews) - 1) / 2.0 if entity_previews else 0.0
+
+        for idx, entity_preview in enumerate(entity_previews):
+            px, py, pz = entity_preview["position"]
+            if auto_layout:
+                px = (idx - center_index) * 1.25
+                py = 0.0
+                pz = -0.12 * abs(idx - center_index)
+
+            scene_planes.append(
+                ScenePlane(
+                    name=f"entity-{AssetPipelineService._slugify(entity_preview['name'])}",
+                    image_bytes=entity_preview["image_bytes"],
+                    image_width=entity_preview["image_width"],
+                    image_height=entity_preview["image_height"],
+                    translation=(float(px), float(py), float(pz)),
+                    scale=float(entity_preview["scale"]),
+                    animate=True,
+                    float_height=0.08 + (0.015 * (idx % 3)),
+                    pulse_scale=0.035 + (0.01 * (idx % 2)),
+                    animation_phase=(idx / max(len(entity_previews), 1)),
+                )
+            )
+
+        return scene_planes
 
     def run(self, scene_id: str, request: AssetCreateRequest) -> PipelineResult:
         scene_title = self._resolve_scene_title(request)
@@ -294,22 +356,6 @@ class AssetPipelineService:
                 image_format,
                 resource_type="image",
             )
-        scene_glb_bytes = glb_builder_service.build_textured_plane_glb(
-            scene_preview_bytes,
-            image_width=width,
-            image_height=height,
-        )
-        scene_glb_upload = self.cloudinary_client.upload_bytes(
-            scene_glb_bytes,
-            f"{settings.cloudinary_folder}/{scene_id}/scene/model/rev_1",
-            settings.glb_output_format,
-            resource_type="raw",
-        )
-
-        scene_assets = {
-            "preview_image": self._build_asset_file(scene_preview_upload) if scene_preview_upload else None,
-            "glb_model": self._build_asset_file(scene_glb_upload),
-        }
         if scene_preview_upload:
             asset_records.append(
                 self._build_db_asset_record(
@@ -326,24 +372,9 @@ class AssetPipelineService:
                     },
                 )
             )
-        asset_records.append(
-            self._build_db_asset_record(
-                scene_id=scene_id,
-                entity_name=None,
-                asset_kind="scene_glb_model",
-                upload=scene_glb_upload,
-                generation_params=self._build_glb_generation_params(
-                    upload=scene_glb_upload,
-                    preview_asset_kind="scene_preview_image",
-                    preview_persisted=upload_previews,
-                    style=style,
-                    asset_role="background",
-                    negative_prompt=scene_negative_prompt,
-                ),
-            )
-        )
 
         entity_assets: list[dict] = []
+        entity_previews: list[dict] = []
         for idx, entity in enumerate(request.entities):
             px = settings.default_position_x
             py = settings.default_position_y
@@ -377,6 +408,16 @@ class AssetPipelineService:
                 width=width,
                 height=height,
                 negative_prompt=entity_negative_prompt,
+            )
+            entity_previews.append(
+                {
+                    "name": entity.name,
+                    "image_bytes": entity_preview_bytes,
+                    "image_width": width,
+                    "image_height": height,
+                    "position": [px, py, pz],
+                    "scale": scale,
+                }
             )
             entity_preview_upload: CloudinaryUploadResult | None = None
             if upload_previews:
@@ -449,6 +490,48 @@ class AssetPipelineService:
                     ),
                 )
             )
+
+        scene_glb_bytes = glb_builder_service.build_animated_scene_glb(
+            self._build_scene_planes(
+                scene_preview_bytes=scene_preview_bytes,
+                image_width=width,
+                image_height=height,
+                entity_previews=entity_previews,
+            )
+        )
+        scene_glb_upload = self.cloudinary_client.upload_bytes(
+            scene_glb_bytes,
+            f"{settings.cloudinary_folder}/{scene_id}/scene/model/rev_1",
+            settings.glb_output_format,
+            resource_type="raw",
+        )
+        scene_assets = {
+            "preview_image": self._build_asset_file(scene_preview_upload) if scene_preview_upload else None,
+            "glb_model": self._build_asset_file(scene_glb_upload),
+        }
+        asset_records.append(
+            self._build_db_asset_record(
+                scene_id=scene_id,
+                entity_name=None,
+                asset_kind="scene_glb_model",
+                upload=scene_glb_upload,
+                generation_params=self._build_glb_generation_params(
+                    upload=scene_glb_upload,
+                    preview_asset_kind=None,
+                    preview_persisted=upload_previews,
+                    style=style,
+                    asset_role="scenario",
+                    negative_prompt=scene_negative_prompt,
+                    builder_name="animated_scene_glb",
+                    extra_params={
+                        "source_asset_type": "generated_preview_images",
+                        "entity_count": len(entity_previews),
+                        "contains_background": True,
+                        "contains_entity_glbs": True,
+                    },
+                ),
+            )
+        )
 
         response_payload = {
             "scene_id": scene_id,

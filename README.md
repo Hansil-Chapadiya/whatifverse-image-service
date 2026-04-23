@@ -76,12 +76,17 @@ curl http://127.0.0.1:8001/api/v1/health
 
 Each completed scene returns:
 
-- a scene GLB model
-- per-entity GLB models
+- one animated scene GLB model for direct AR placement
+- per-entity GLB models as secondary assets
 
 Optional debug/admin mode can also include uploaded preview images.
 
-The current GLB builder produces a textured upright plane from each generated preview image. This is a practical V2 step for AR placement while a true image-to-3D pipeline is still being developed.
+The current GLB builder produces:
+
+- per-entity textured upright-plane GLBs
+- one merged animated scene GLB that combines the background and entities into a single AR-ready model
+
+This is a practical V2 step for AR placement while a true image-to-3D pipeline is still being developed.
 
 ## DB Integration Status
 

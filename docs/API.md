@@ -99,10 +99,11 @@ Response `200` (`SceneAssetResponse`):
 
 Notes:
 
-- `glb_model` is the primary V2 asset returned to the frontend.
+- `scene.glb_model` is the primary V2 asset returned to the frontend and is now the merged animated scenario GLB.
+- `entities[].glb_model` remains available as a secondary per-entity asset.
 - `preview_image` is `null` by default because preview PNGs are not uploaded in normal mode.
 - `preview_image` becomes available only when preview uploads are explicitly enabled for debug/admin workflows.
-- The current V2 GLB builder wraps the generated preview into a textured upright plane so it can be placed in AR on a flat surface.
+- The current V2 GLB builder wraps generated previews into textured upright planes and then composes them into one animated scene GLB for AR placement.
 
 ### Async mode response
 
