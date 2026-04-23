@@ -4,25 +4,32 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class AssetInfo(BaseModel):
-    image_url: str
+class AssetFileInfo(BaseModel):
+    url: str
     public_id: str
     format: str
-    width: int
-    height: int
+    resource_type: Literal["image", "raw"]
+    bytes_size: int | None = None
+    width: int | None = None
+    height: int | None = None
 
 
-class EntityAsset(BaseModel):
+class SceneAssetBundle(BaseModel):
+    preview_image: AssetFileInfo | None = None
+    glb_model: AssetFileInfo
+
+
+class EntityAssetBundle(BaseModel):
     name: str
-    image_url: str
-    public_id: str
     position: list[float]
     scale: float
+    preview_image: AssetFileInfo | None = None
+    glb_model: AssetFileInfo
 
 
 class SceneAssets(BaseModel):
-    scene_image: AssetInfo
-    entities: list[EntityAsset]
+    scene: SceneAssetBundle
+    entities: list[EntityAssetBundle]
 
 
 class SceneAssetResponse(BaseModel):
@@ -40,11 +47,18 @@ class JobAcceptedResponse(BaseModel):
     scene_id: str
 
 
+class JobErrorResponse(BaseModel):
+    code: str
+    message: str
+    details: str | None = None
+
+
 class JobStatusResponse(BaseModel):
     job_id: str
     status: Literal["queued", "processing", "completed", "failed"]
     scene_id: str
     result: SceneAssetResponse | None = None
+    error: JobErrorResponse | None = None
 
 
 class ErrorEnvelope(BaseModel):

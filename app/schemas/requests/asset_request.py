@@ -15,16 +15,31 @@ class RenderOptions(BaseModel):
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
     negative_prompt: str | None = None
+    include_preview_assets: bool = False
 
 
 class AssetCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str | None = Field(default=None, min_length=8, max_length=128)
-    scene_title: str = Field(min_length=1, max_length=200)
+    scene_title: str | None = Field(default=None, max_length=200)
     scenario_text: str = Field(min_length=1)
     entities: list[EntityInput] = Field(min_length=1)
     render_options: RenderOptions | None = None
+
+    @field_validator("entities", mode="before")
+    @classmethod
+    def normalize_entities(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+
+        normalized: list[object] = []
+        for item in value:
+            if isinstance(item, str):
+                normalized.append({"name": item})
+            else:
+                normalized.append(item)
+        return normalized
 
     @field_validator("entities")
     @classmethod

@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.core.security import validate_internal_token
 from app.schemas.requests.asset_request import AssetCreateRequest
 from app.schemas.responses.asset_response import JobAcceptedResponse, SceneAssetResponse
-from app.services.asset_pipeline_service import asset_pipeline_service
+from app.services.asset_pipeline_service import PipelineResult, asset_pipeline_service
 from app.services.idempotency_service import idempotency_service
 from app.services.scene_store import scene_store
 
@@ -21,33 +21,47 @@ def _payload_for_hash(request: AssetCreateRequest) -> dict:
 
 
 def _build_scene_response(result: dict, replay: bool = False) -> SceneAssetResponse:
-    return SceneAssetResponse(
-        scene_id=result["scene_id"],
-        status=result["status"],
-        scene_title=result["scene_title"],
-        scenario_text=result["scenario_text"],
-        assets=result.get("assets"),
-        idempotent_replay=replay,
-    )
+    payload = {**result, "idempotent_replay": replay}
+    return SceneAssetResponse(**payload)
 
 
-def _run_job(job_id: str, request: AssetCreateRequest, request_id: str | None = None, payload_hash: str | None = None) -> None:
-    scene_store.set_job_status(job_id, "processing")
-    result = asset_pipeline_service.run(request)
-    response_payload = {
-        "scene_id": result.scene_id,
-        "status": "completed",
-        "scene_title": result.scene_title,
-        "scenario_text": result.scenario_text,
-        "assets": {
-            "scene_image": result.scene_asset,
-            "entities": result.entity_assets,
-        },
+def _build_generation_error(exc: Exception) -> dict:
+    return {
+        "code": "ASSET_GENERATION_FAILED",
+        "message": "Failed to generate GLB assets",
+        "details": str(exc),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    scene_store.save_scene(result.scene_id, response_payload, request_id=request_id, payload_hash=payload_hash)
-    scene_store.set_job_result(job_id, response_payload)
-    if request_id and payload_hash:
-        idempotency_service.set_response(request_id, payload_hash, response_payload)
+
+
+def _persist_pipeline_result(
+    result: PipelineResult,
+    request: AssetCreateRequest,
+    payload_hash: str,
+) -> dict:
+    scene_store.save_scene(
+        result.scene_id,
+        result.response_payload,
+        request_id=request.request_id,
+        payload_hash=payload_hash,
+        entity_records=result.entity_records,
+        asset_records=result.asset_records,
+    )
+    if request.request_id:
+        idempotency_service.set_response(request.request_id, payload_hash, result.response_payload)
+    return result.response_payload
+
+
+def _run_job(job_id: str, scene_id: str, request: AssetCreateRequest, payload_hash: str) -> None:
+    scene_store.set_job_status(job_id, "processing")
+    try:
+        result = asset_pipeline_service.run(scene_id, request)
+        response_payload = _persist_pipeline_result(result, request, payload_hash)
+        scene_store.set_job_result(job_id, response_payload)
+    except Exception as exc:
+        scene_store.set_job_error(job_id, scene_id, _build_generation_error(exc))
+        if request.request_id:
+            idempotency_service.clear_record(request.request_id)
 
 
 @router.post("/assets", response_model=SceneAssetResponse | JobAcceptedResponse)
@@ -91,36 +105,22 @@ def create_scene_assets(
                         }
                     },
                 )
-            if current.response is not None:
-                return _build_scene_response(current.response, replay=True)
+            return _build_scene_response(current.response, replay=True)
 
+    scene_id = f"scn_{uuid4().hex[:12]}"
     if mode == "async":
-        temp_scene_id = f"scn_{uuid4().hex[:12]}"
         job_id = f"job_{uuid4().hex[:12]}"
-        scene_store.create_job(job_id, temp_scene_id)
-        background_tasks.add_task(_run_job, job_id, request, request.request_id, payload_hash)
-        return JobAcceptedResponse(job_id=job_id, status="queued", scene_id=temp_scene_id)
+        scene_store.create_job(job_id, scene_id)
+        background_tasks.add_task(_run_job, job_id, scene_id, request, payload_hash)
+        return JobAcceptedResponse(job_id=job_id, status="queued", scene_id=scene_id)
 
-    result = asset_pipeline_service.run(request)
-    response_payload = {
-        "scene_id": result.scene_id,
-        "status": "completed",
-        "scene_title": result.scene_title,
-        "scenario_text": result.scenario_text,
-        "assets": {
-            "scene_image": result.scene_asset,
-            "entities": result.entity_assets,
-        },
-    }
-    scene_store.save_scene(
-        result.scene_id,
-        response_payload,
-        request_id=request.request_id,
-        payload_hash=payload_hash,
-    )
-
-    if request.request_id:
-        idempotency_service.set_response(request.request_id, payload_hash, response_payload)
+    try:
+        result = asset_pipeline_service.run(scene_id, request)
+        response_payload = _persist_pipeline_result(result, request, payload_hash)
+    except Exception:
+        if request.request_id:
+            idempotency_service.clear_record(request.request_id)
+        raise
 
     return _build_scene_response(response_payload)
 
@@ -140,5 +140,3 @@ def get_scene(scene_id: str):
             },
         )
     return _build_scene_response(data)
-
-

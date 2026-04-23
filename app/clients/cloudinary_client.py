@@ -12,6 +12,8 @@ class CloudinaryUploadResult:
     secure_url: str
     public_id: str
     format: str
+    resource_type: str
+    bytes_size: int
     width: int
     height: int
 
@@ -28,20 +30,28 @@ class CloudinaryClient:
             secure=settings.cloudinary_secure,
         )
 
-    def upload_bytes(self, image_bytes: bytes, public_id: str, image_format: str) -> CloudinaryUploadResult:
+    def upload_bytes(
+        self,
+        file_bytes: bytes,
+        public_id: str,
+        asset_format: str,
+        resource_type: str = "image",
+    ) -> CloudinaryUploadResult:
         upload_result = cloudinary.uploader.upload(
-            BytesIO(image_bytes),
+            BytesIO(file_bytes),
             public_id=public_id,
-            resource_type="image",
+            resource_type=resource_type,
             overwrite=True,
-            format=image_format,
+            format=asset_format,
         )
 
         secure_url = str(upload_result.get("secure_url", ""))
         result_public_id = str(upload_result.get("public_id", public_id))
-        result_format = str(upload_result.get("format", image_format))
-        width = int(upload_result.get("width", 0))
-        height = int(upload_result.get("height", 0))
+        result_format = str(upload_result.get("format", asset_format))
+        result_resource_type = str(upload_result.get("resource_type", resource_type))
+        bytes_size = int(upload_result.get("bytes", len(file_bytes)))
+        width = int(upload_result.get("width", 0) or 0)
+        height = int(upload_result.get("height", 0) or 0)
 
         if not secure_url:
             raise RuntimeError("Cloudinary upload did not return secure_url")
@@ -50,6 +60,8 @@ class CloudinaryClient:
             secure_url=secure_url,
             public_id=result_public_id,
             format=result_format,
+            resource_type=result_resource_type,
+            bytes_size=bytes_size,
             width=width,
             height=height,
         )

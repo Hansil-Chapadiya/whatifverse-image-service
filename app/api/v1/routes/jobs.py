@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.security import validate_internal_token
-from app.schemas.responses.asset_response import JobStatusResponse, SceneAssetResponse
+from app.schemas.responses.asset_response import JobErrorResponse, JobStatusResponse, SceneAssetResponse
 from app.services.scene_store import scene_store
 
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(validate_internal_token)])
@@ -26,4 +26,5 @@ def get_job(job_id: str):
         status=record.status,
         scene_id=record.scene_id,
         result=SceneAssetResponse(**record.result) if record.result else None,
+        error=JobErrorResponse(**record.error) if record.error else None,
     )

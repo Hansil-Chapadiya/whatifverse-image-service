@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     enable_glb_pipeline: bool = False
     hf_image_to_3d_model: str = ""
     glb_output_format: str = "glb"
+    persist_preview_assets: bool = False
+    allow_preview_asset_uploads: bool = False
 
     cloudinary_cloud_name: str = ""
     cloudinary_api_key: str = ""
