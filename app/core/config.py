@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     internal_token: str = ""
+    cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     ai_service_base_url: str = ""
     ai_service_token: str = ""
@@ -57,6 +58,13 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        origins = [origin.strip().rstrip("/") for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+        if origins == ["*"]:
+            return ["*"]
+        return origins
 
 
 settings = Settings()
