@@ -1,16 +1,20 @@
 # WhatIfVerse Image Service
 
-FastAPI service that generates scene images and entity images from scenario text using Hugging Face inference, uploads assets to Cloudinary, and persists scene/job/idempotency state in Neon Postgres.
+FastAPI service that accepts scenario text plus extracted entities, generates preview renders with Hugging Face, converts those renders into simple GLB models, uploads GLB assets to Cloudinary, and persists scene/job/idempotency state in Neon Postgres.
 
 ## Features
 
-- Token-protected API (`token` header required).
-- Single create endpoint with `sync` and `async` modes.
-- Idempotency with `request_id + payload_hash`.
-- Real image generation via Hugging Face router inference endpoint.
-- Real image hosting via Cloudinary.
+- Token-protected API (`token` header required)
+- Single create endpoint with `sync` and `async` modes
+- Accepts AI-service friendly input: `scenario_text + entities`
+- Generates preview images via Hugging Face
+- Builds V2 GLB assets as textured planes for AR placement
+- Uploads GLB files to Cloudinary by default
+- Keeps preview images in memory and only uploads them when explicitly allowed for debugging/admin workflows
 - DB-backed state for:
   - scenes
+  - scene entities
+  - assets
   - jobs
   - idempotency records
 
@@ -68,13 +72,27 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 curl http://127.0.0.1:8001/api/v1/health
 ```
 
+## V2 Output Model
+
+Each completed scene returns:
+
+- a scene GLB model
+- per-entity GLB models
+
+Optional debug/admin mode can also include uploaded preview images.
+
+The current GLB builder produces a textured upright plane from each generated preview image. This is a practical V2 step for AR placement while a true image-to-3D pipeline is still being developed.
+
 ## DB Integration Status
 
-Fully DB-backed now:
+DB-backed now:
 
-- `idempotency_records` table is used for request replay and mismatch checks.
-- `jobs` table is used for async job state polling.
-- `scenes` table stores final response payload (`response_json`).
+- `idempotency_records` table is used for request replay and mismatch checks
+- `jobs` table is used for async job state polling
+- `scenes` table stores the final response payload (`response_json`)
+- `scene_entities` stores normalized entity rows
+- `assets` stores normalized GLB asset rows by default
+- preview-image rows are stored only when preview uploads are explicitly enabled
 
 Startup behavior:
 
