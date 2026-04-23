@@ -7,6 +7,9 @@ Database integration is complete for operational state:
 - Idempotency records are stored in DB.
 - Async jobs are stored in DB.
 - Scene final response payload is stored in DB.
+- Scene entities are stored in normalized rows.
+- GLB assets are stored in normalized rows.
+- Preview-image assets are stored only when preview uploads are explicitly enabled.
 
 ## Tables
 
@@ -62,6 +65,12 @@ Key fields:
 
 Final scene response payload is written to `scenes.response_json` and retrieved by scene GET endpoint.
 
+Additionally:
+
+- `scene_entities` stores entity name + transform metadata
+- `assets` stores Cloudinary metadata for GLB files by default
+- preview-image metadata is included only when preview uploads are enabled
+
 ## Startup Integration
 
 `app/main.py` startup hook:
@@ -84,4 +93,7 @@ This ensures tables exist before serving requests (when `DATABASE_URL` is config
 ## Known Limitation
 
 - Schema evolution is currently handled via `create_all`, not versioned migrations.
-- Recommended next step: wire Alembic migration history for production-safe schema changes.
+- The current V2 GLB output is a textured plane model, not a true generated 3D mesh.
+- Recommended next steps:
+  - wire Alembic migration history
+  - replace the plane builder with a true image-to-3D or scene-to-3D pipeline when ready

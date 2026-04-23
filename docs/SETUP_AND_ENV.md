@@ -33,6 +33,8 @@ HF_IMAGE_HEIGHT=1024
 HF_NUM_INFERENCE_STEPS=4
 HF_GUIDANCE_SCALE=3.5
 HF_NEGATIVE_PROMPT=
+PERSIST_PREVIEW_ASSETS=false
+ALLOW_PREVIEW_ASSET_UPLOADS=false
 
 CLOUDINARY_CLOUD_NAME=replace_me
 CLOUDINARY_API_KEY=replace_me
@@ -60,6 +62,8 @@ DEFAULT_POSITION_Z=0.0
 - `HF_TOKEN` and `HF_TEXT_TO_IMAGE_MODEL` are required for generation.
 - Cloudinary credentials are required for upload.
 - `DATABASE_URL` is required for persistent jobs/idempotency.
+- `PERSIST_PREVIEW_ASSETS=false` keeps preview PNGs in memory and stores only GLBs by default.
+- `ALLOW_PREVIEW_ASSET_UPLOADS=true` lets trusted callers opt into preview uploads with `render_options.include_preview_assets=true`.
 
 ## Run
 

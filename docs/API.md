@@ -26,14 +26,9 @@ Request body:
 ```json
 {
   "request_id": "req_12345678",
-  "scene_title": "Neon Mars Bazaar",
   "scenario_text": "A floating market on Mars where robots and humans trade memories.",
   "entities": [
-    {
-      "name": "Memory Merchant",
-      "position": [0, 0, 0],
-      "scale": 1.2
-    },
+    "Memory Merchant",
     {
       "name": "Drone Porter",
       "position": [1.5, 0, -0.5],
@@ -45,17 +40,20 @@ Request body:
     "format": "png",
     "width": 1024,
     "height": 1024,
-    "negative_prompt": "blurry, low quality"
+    "negative_prompt": "blurry, low quality",
+    "include_preview_assets": false
   }
 }
 ```
 
 Validation rules:
 - `request_id`: optional, min 8, max 128 chars.
-- `scene_title`: required, max 200 chars.
+- `scene_title`: optional, max 200 chars.
 - `entities`: required list, min 1 item.
+- Entity items may be either raw strings or objects with `name`, optional `position`, and optional `scale`.
 - Entity names must be unique (case-insensitive trimmed comparison).
 - `render_options.format`: one of `png|jpg|webp`.
+- `render_options.include_preview_assets`: optional debug/admin flag. Preview uploads are honored only when the service runs in debug mode or the server explicitly allows preview uploads.
 - `mode`: `sync` or `async`.
 
 ### Sync mode response
@@ -66,29 +64,45 @@ Response `200` (`SceneAssetResponse`):
 {
   "scene_id": "scn_abc123...",
   "status": "completed",
-  "scene_title": "Neon Mars Bazaar",
+  "scene_title": "A floating market on Mars where robots and humans trade memories.",
   "scenario_text": "...",
   "assets": {
-    "scene_image": {
-      "image_url": "https://res.cloudinary.com/...",
-      "public_id": "whatifverse/scenes/scn_x/scene/rev_1",
-      "format": "png",
-      "width": 1024,
-      "height": 1024
+    "scene": {
+      "preview_image": null,
+      "glb_model": {
+        "url": "https://res.cloudinary.com/...",
+        "public_id": "whatifverse/scenes/scn_x/scene/model/rev_1",
+        "format": "glb",
+        "resource_type": "raw",
+        "bytes_size": 231908
+      }
     },
     "entities": [
       {
         "name": "Memory Merchant",
-        "image_url": "https://res.cloudinary.com/...",
-        "public_id": "whatifverse/scenes/scn_x/entities/memory-merchant/rev_1",
         "position": [0, 0, 0],
-        "scale": 1.2
+        "scale": 1.2,
+        "preview_image": null,
+        "glb_model": {
+          "url": "https://res.cloudinary.com/...",
+          "public_id": "whatifverse/scenes/scn_x/entities/memory-merchant/model/rev_1",
+          "format": "glb",
+          "resource_type": "raw",
+          "bytes_size": 190225
+        }
       }
     ]
   },
   "idempotent_replay": false
 }
 ```
+
+Notes:
+
+- `glb_model` is the primary V2 asset returned to the frontend.
+- `preview_image` is `null` by default because preview PNGs are not uploaded in normal mode.
+- `preview_image` becomes available only when preview uploads are explicitly enabled for debug/admin workflows.
+- The current V2 GLB builder wraps the generated preview into a textured upright plane so it can be placed in AR on a flat surface.
 
 ### Async mode response
 
@@ -98,7 +112,7 @@ Response `200` (`JobAcceptedResponse`):
 {
   "job_id": "job_abc123...",
   "status": "queued",
-  "scene_id": "scn_temp123..."
+  "scene_id": "scn_abc123..."
 }
 ```
 
@@ -132,12 +146,58 @@ Response `200` (`JobStatusResponse`):
 {
   "job_id": "job_abc123...",
   "status": "processing",
-  "scene_id": "scn_temp123...",
-  "result": null
+  "scene_id": "scn_abc123...",
+  "result": null,
+  "error": null
 }
 ```
 
-When completed, `result` contains full `SceneAssetResponse`.
+Completed example:
+
+```json
+{
+  "job_id": "job_abc123...",
+  "status": "completed",
+  "scene_id": "scn_abc123...",
+  "result": {
+    "scene_id": "scn_abc123...",
+    "status": "completed",
+    "scene_title": "...",
+    "scenario_text": "...",
+    "assets": {
+      "scene": {
+        "preview_image": null,
+        "glb_model": {
+          "url": "https://res.cloudinary.com/...",
+          "public_id": "whatifverse/scenes/scn_x/scene/model/rev_1",
+          "format": "glb",
+          "resource_type": "raw",
+          "bytes_size": 231908
+        }
+      },
+      "entities": []
+    },
+    "idempotent_replay": false
+  },
+  "error": null
+}
+```
+
+Failed example:
+
+```json
+{
+  "job_id": "job_abc123...",
+  "status": "failed",
+  "scene_id": "scn_abc123...",
+  "result": null,
+  "error": {
+    "code": "ASSET_GENERATION_FAILED",
+    "message": "Failed to generate GLB assets",
+    "details": "..."
+  }
+}
+```
 
 Response `404`:
 
@@ -159,6 +219,7 @@ If `request_id` is provided:
   - If still processing -> `409 IDEMPOTENCY_REQUEST_IN_PROGRESS`
   - If completed -> replay prior response with `idempotent_replay: true`
 - Same `request_id` + different payload hash -> `409 IDEMPOTENCY_KEY_PAYLOAD_MISMATCH`
+- If generation fails, the idempotency record is cleared so the caller can retry with the same `request_id`.
 
 ## 6. Common Error Codes
 

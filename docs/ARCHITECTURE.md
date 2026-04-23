@@ -19,10 +19,13 @@ The service is structured as a layered FastAPI application:
 4. Optional idempotency check (`request_id`).
 5. `AssetPipelineService.run()`:
    - Build scene prompt.
-   - Generate scene image bytes via Hugging Face.
-   - Upload to Cloudinary.
-   - Generate and upload each entity image.
+   - Generate scene preview bytes via Hugging Face.
+   - Convert the preview into a GLB model.
+   - Upload the GLB to Cloudinary.
+   - Optionally upload preview images only for debug/admin workflows.
+   - Generate each entity preview in memory and upload each entity GLB.
 6. Persist final scene payload in DB.
+7. Persist normalized scene entities and assets in DB.
 7. Persist idempotency completion state.
 8. Return `SceneAssetResponse`.
 
@@ -30,10 +33,12 @@ The service is structured as a layered FastAPI application:
 
 1. `POST /api/v1/scenes/assets?mode=async`
 2. Validate + idempotency check.
-3. Insert queued job row.
+3. Pre-allocate stable `scene_id`.
+4. Insert queued job row.
 4. Return `job_id` immediately.
 5. Background task runs same pipeline.
 6. Update job status/result in DB.
+7. On failure, clear the idempotency lock so the request can be retried.
 
 ### Job polling
 
@@ -62,6 +67,7 @@ Responsibilities:
 
 Responsibilities:
 - generation/upload orchestration
+- preview-to-GLB conversion
 - idempotency hash + record lifecycle
 - scene/job persistence abstraction
 
@@ -73,6 +79,7 @@ Responsibilities:
 Responsibilities:
 - external API payload format
 - integration-specific error normalization
+- Cloudinary image/raw upload handling
 
 ### Data Layer
 
@@ -89,8 +96,12 @@ Responsibilities:
 DB is source of truth for:
 
 - scenes (`scenes.response_json`)
+- scene entities (`scene_entities`)
+- assets (`assets`)
 - jobs (`jobs.status`, `jobs.result_json`)
 - idempotency (`idempotency_records`)
+
+In normal V2 operation, `assets` is primarily GLB-oriented. Preview image rows appear only when preview uploads are explicitly enabled.
 
 An in-process scene cache exists for quick same-process reads, but DB persistence guarantees recovery across restarts.
 
