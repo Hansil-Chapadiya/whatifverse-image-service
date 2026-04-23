@@ -75,5 +75,15 @@ class IdempotencyService:
                 row.response_json = response
             db.commit()
 
+    def clear_record(self, request_id: str) -> None:
+        if SessionLocal is None:
+            return
+
+        with SessionLocal() as db:
+            row = db.get(IdempotencyModel, request_id)
+            if row is not None:
+                db.delete(row)
+                db.commit()
+
 
 idempotency_service = IdempotencyService()
