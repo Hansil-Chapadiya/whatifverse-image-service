@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from collections import OrderedDict
 from threading import Lock
 from typing import Any
 
+from app.core.config import settings
 from app.db.models.asset_model import AssetModel, JobModel, SceneEntityModel, SceneModel
 from app.db.session import SessionLocal
 
@@ -16,8 +18,18 @@ class JobRecord:
 
 class SceneStore:
     def __init__(self) -> None:
-        self._scene_results: dict[str, dict[str, Any]] = {}
+        self._scene_results: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self._cache_max_items = max(int(settings.scene_cache_max_items), 0)
         self._lock = Lock()
+
+    def _cache_scene(self, scene_id: str, payload: dict[str, Any]) -> None:
+        if self._cache_max_items == 0:
+            return
+
+        self._scene_results[scene_id] = payload
+        self._scene_results.move_to_end(scene_id)
+        while len(self._scene_results) > self._cache_max_items:
+            self._scene_results.popitem(last=False)
 
     def save_scene(
         self,
@@ -29,7 +41,7 @@ class SceneStore:
         asset_records: list[dict[str, Any]] | None = None,
     ) -> None:
         with self._lock:
-            self._scene_results[scene_id] = payload
+            self._cache_scene(scene_id, payload)
 
         if SessionLocal is None:
             return
@@ -99,9 +111,11 @@ class SceneStore:
             db.commit()
 
     def get_scene(self, scene_id: str) -> dict[str, Any] | None:
-        cached = self._scene_results.get(scene_id)
-        if cached is not None:
-            return cached
+        with self._lock:
+            cached = self._scene_results.get(scene_id)
+            if cached is not None:
+                self._scene_results.move_to_end(scene_id)
+                return cached
 
         if SessionLocal is None:
             return None
@@ -109,6 +123,8 @@ class SceneStore:
         with SessionLocal() as db:
             scene = db.get(SceneModel, scene_id)
             if scene and scene.response_json:
+                with self._lock:
+                    self._cache_scene(scene_id, scene.response_json)
                 return scene.response_json
         return None
 

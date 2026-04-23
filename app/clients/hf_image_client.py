@@ -15,6 +15,10 @@ class HFImageClient:
             "Authorization": f"Bearer {settings.hf_token}",
             "Content-Type": "application/json",
         }
+        self._client = httpx.Client(headers=self._headers, timeout=settings.ai_request_timeout)
+
+    def close(self) -> None:
+        self._client.close()
 
     def generate_image(
         self,
@@ -38,10 +42,11 @@ class HFImageClient:
         if effective_negative:
             inference_payload["parameters"]["negative_prompt"] = effective_negative
 
-        headers = {**self._headers, "Accept": "image/png"}
-
-        with httpx.Client(timeout=settings.ai_request_timeout) as client:
-            response = client.post(self._inference_endpoint, headers=headers, json=inference_payload)
+        response = self._client.post(
+            self._inference_endpoint,
+            headers={"Accept": "image/png"},
+            json=inference_payload,
+        )
 
         if response.status_code >= 400:
             detail = response.text

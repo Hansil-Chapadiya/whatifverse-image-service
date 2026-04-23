@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     db_echo: bool = False
+    scene_cache_max_items: int = 256
 
     default_image_style: str = "cinematic 3d render"
     default_output_format: str = "png"

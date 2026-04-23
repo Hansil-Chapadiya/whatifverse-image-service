@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 
 from app.core.config import settings
 from app.core.security import validate_internal_token
+from app.db.session import is_db_enabled
 from app.schemas.requests.asset_request import AssetCreateRequest
 from app.schemas.responses.asset_response import JobAcceptedResponse, SceneAssetResponse
 from app.services.asset_pipeline_service import PipelineResult, asset_pipeline_service
@@ -34,6 +35,26 @@ def _build_generation_error(exc: Exception) -> dict:
     }
 
 
+def _resolve_scene_title(request: AssetCreateRequest) -> str:
+    if request.scene_title:
+        return request.scene_title.strip()
+
+    compact_text = " ".join(request.scenario_text.split())
+    if len(compact_text) <= 80:
+        return compact_text
+    return f"{compact_text[:77].rstrip()}..."
+
+
+def _build_scene_stub(scene_id: str, request: AssetCreateRequest, status_value: str) -> dict:
+    return {
+        "scene_id": scene_id,
+        "status": status_value,
+        "scene_title": _resolve_scene_title(request),
+        "scenario_text": request.scenario_text,
+        "assets": None,
+    }
+
+
 def _persist_pipeline_result(
     result: PipelineResult,
     request: AssetCreateRequest,
@@ -54,12 +75,24 @@ def _persist_pipeline_result(
 
 def _run_job(job_id: str, scene_id: str, request: AssetCreateRequest, payload_hash: str) -> None:
     scene_store.set_job_status(job_id, "processing")
+    scene_store.save_scene(
+        scene_id,
+        _build_scene_stub(scene_id, request, "processing"),
+        request_id=request.request_id,
+        payload_hash=payload_hash,
+    )
     try:
         result = asset_pipeline_service.run(scene_id, request)
         response_payload = _persist_pipeline_result(result, request, payload_hash)
         scene_store.set_job_result(job_id, response_payload)
     except Exception as exc:
         scene_store.set_job_error(job_id, scene_id, _build_generation_error(exc))
+        scene_store.save_scene(
+            scene_id,
+            _build_scene_stub(scene_id, request, "failed"),
+            request_id=request.request_id,
+            payload_hash=payload_hash,
+        )
         if request.request_id:
             idempotency_service.clear_record(request.request_id)
 
@@ -77,6 +110,17 @@ def create_scene_assets(
                 "error": {
                     "code": "MAX_ENTITIES_EXCEEDED",
                     "message": f"entities cannot exceed {settings.max_entities_per_scene}",
+                }
+            },
+        )
+
+    if mode == "async" and not is_db_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "code": "ASYNC_MODE_REQUIRES_DATABASE",
+                    "message": "async mode requires DATABASE_URL-backed persistence",
                 }
             },
         )
@@ -110,6 +154,12 @@ def create_scene_assets(
     scene_id = f"scn_{uuid4().hex[:12]}"
     if mode == "async":
         job_id = f"job_{uuid4().hex[:12]}"
+        scene_store.save_scene(
+            scene_id,
+            _build_scene_stub(scene_id, request, "queued"),
+            request_id=request.request_id,
+            payload_hash=payload_hash,
+        )
         scene_store.create_job(job_id, scene_id)
         background_tasks.add_task(_run_job, job_id, scene_id, request, payload_hash)
         return JobAcceptedResponse(job_id=job_id, status="queued", scene_id=scene_id)

@@ -4,6 +4,7 @@ from app.api.v1.router import router as v1_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
 from app.db.session import check_db_connection, init_db
+from app.services.asset_pipeline_service import asset_pipeline_service
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 app.include_router(v1_router, prefix=settings.api_v1_prefix)
@@ -16,3 +17,8 @@ def startup_db() -> None:
 	if settings.database_url:
 		check_db_connection()
 		init_db()
+
+
+@app.on_event("shutdown")
+def shutdown_clients() -> None:
+    asset_pipeline_service.hf_image_client.close()

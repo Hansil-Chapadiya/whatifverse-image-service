@@ -13,6 +13,10 @@ if settings.database_url:
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def is_db_enabled() -> bool:
+    return SessionLocal is not None
+
+
 def init_db() -> None:
     if engine is None:
         return

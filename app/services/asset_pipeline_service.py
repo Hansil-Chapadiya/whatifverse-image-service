@@ -223,6 +223,36 @@ class AssetPipelineService:
             "revision": 1,
         }
 
+    @staticmethod
+    def _build_glb_generation_params(
+        *,
+        upload: CloudinaryUploadResult,
+        preview_asset_kind: str,
+        preview_persisted: bool,
+        style: str,
+        asset_role: str,
+        entity_order: int | None = None,
+        negative_prompt: str | None = None,
+    ) -> dict:
+        params = {
+            "builder": "textured_plane_glb",
+            "source_asset_type": "generated_preview_image",
+            "source_asset_persisted": preview_persisted,
+            "source_asset_storage": "cloudinary" if preview_persisted else "memory",
+            "resource_type": upload.resource_type,
+            "bytes_size": upload.bytes_size,
+            "mime_type": "model/gltf-binary",
+            "style": style,
+            "asset_role": asset_role,
+        }
+        if preview_persisted:
+            params["source_asset_kind"] = preview_asset_kind
+        if entity_order is not None:
+            params["entity_order"] = entity_order
+        if negative_prompt:
+            params["negative_prompt"] = negative_prompt
+        return params
+
     def run(self, scene_id: str, request: AssetCreateRequest) -> PipelineResult:
         scene_title = self._resolve_scene_title(request)
         upload_previews = self._should_upload_previews(request)
@@ -302,16 +332,14 @@ class AssetPipelineService:
                 entity_name=None,
                 asset_kind="scene_glb_model",
                 upload=scene_glb_upload,
-                generation_params={
-                    "builder": "textured_plane_glb",
-                    "source_asset_kind": "scene_preview_image",
-                    "resource_type": scene_glb_upload.resource_type,
-                    "bytes_size": scene_glb_upload.bytes_size,
-                    "mime_type": "model/gltf-binary",
-                    "style": style,
-                    "preview_uploaded": upload_previews,
-                    "asset_role": "background",
-                },
+                generation_params=self._build_glb_generation_params(
+                    upload=scene_glb_upload,
+                    preview_asset_kind="scene_preview_image",
+                    preview_persisted=upload_previews,
+                    style=style,
+                    asset_role="background",
+                    negative_prompt=scene_negative_prompt,
+                ),
             )
         )
 
@@ -410,18 +438,15 @@ class AssetPipelineService:
                     entity_name=entity.name,
                     asset_kind="entity_glb_model",
                     upload=entity_glb_upload,
-                    generation_params={
-                        "builder": "textured_plane_glb",
-                        "source_asset_kind": "entity_preview_image",
-                        "resource_type": entity_glb_upload.resource_type,
-                        "bytes_size": entity_glb_upload.bytes_size,
-                        "mime_type": "model/gltf-binary",
-                        "style": style,
-                        "entity_order": idx,
-                        "preview_uploaded": upload_previews,
-                        "asset_role": "entity",
-                        "negative_prompt": entity_negative_prompt or "",
-                    },
+                    generation_params=self._build_glb_generation_params(
+                        upload=entity_glb_upload,
+                        preview_asset_kind="entity_preview_image",
+                        preview_persisted=upload_previews,
+                        style=style,
+                        asset_role="entity",
+                        entity_order=idx,
+                        negative_prompt=entity_negative_prompt,
+                    ),
                 )
             )
 
